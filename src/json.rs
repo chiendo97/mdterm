@@ -2121,7 +2121,6 @@ pub fn render_diagram(
                 };
 
                 canvas.draw_edge_lr(
-                    src_pos.left_x + src_pos.width / 2,
                     src_right_x,
                     src_cy,
                     dst_left_x,
@@ -2130,6 +2129,7 @@ pub fn render_diagram(
                     edge_fg,
                     None,
                     mid_x_override,
+                    None,
                 );
             }
         }
