@@ -13,27 +13,9 @@ use crate::style::{
 };
 use crate::theme::Theme;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum MermaidRenderMode {
-    Auto,
-    Image,
-    #[default]
-    Ascii,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RenderOptions {
     pub line_numbers: bool,
-    pub mermaid_render: MermaidRenderMode,
-}
-
-impl RenderOptions {
-    pub fn ascii(line_numbers: bool) -> Self {
-        Self {
-            line_numbers,
-            mermaid_render: MermaidRenderMode::Ascii,
-        }
-    }
 }
 
 struct Renderer<'a> {
@@ -42,7 +24,6 @@ struct Renderer<'a> {
     current_spans: Vec<StyledSpan>,
     width: usize,
     line_numbers: bool,
-    mermaid_render: MermaidRenderMode,
 
     // Inline style state
     bold: bool,
@@ -116,7 +97,6 @@ impl<'a> Renderer<'a> {
             current_spans: Vec::new(),
             width,
             line_numbers: options.line_numbers,
-            mermaid_render: options.mermaid_render,
             bold: false,
             italic: false,
             strikethrough: false,
@@ -346,10 +326,7 @@ impl<'a> Renderer<'a> {
         });
         self.lines.push(Line {
             spans: top_spans,
-            meta: LineMeta::CodeContent {
-                block_id,
-                diagram: false,
-            },
+            meta: LineMeta::CodeContent { block_id },
         });
 
         // Code lines
@@ -429,10 +406,7 @@ impl<'a> Renderer<'a> {
 
             self.lines.push(Line {
                 spans,
-                meta: LineMeta::CodeContent {
-                    block_id,
-                    diagram: false,
-                },
+                meta: LineMeta::CodeContent { block_id },
             });
         }
 
@@ -445,123 +419,7 @@ impl<'a> Renderer<'a> {
                     ..Default::default()
                 },
             }],
-            meta: LineMeta::CodeContent {
-                block_id,
-                diagram: false,
-            },
-        });
-    }
-
-    fn emit_diagram_block(
-        &mut self,
-        block_id: usize,
-        diagram_rows: &[Vec<StyledSpan>],
-        diagram_width: usize,
-    ) {
-        let border_fg = self.theme.code_border;
-        let label_fg = self.theme.code_label;
-        let code_bg = self.theme.code_bg;
-
-        let content_width = diagram_width.max(40);
-        let inner_width = content_width + 2;
-
-        // Top border with label
-        let label = " mermaid (diagram) ";
-        let label_len = UnicodeWidthStr::width(label);
-        let dashes_after = inner_width.saturating_sub(1 + label_len);
-        self.lines.push(Line {
-            spans: vec![
-                StyledSpan {
-                    text: "  ╭─".to_string(),
-                    style: Style {
-                        fg: Some(border_fg),
-                        ..Default::default()
-                    },
-                },
-                StyledSpan {
-                    text: label.to_string(),
-                    style: Style {
-                        fg: Some(label_fg),
-                        ..Default::default()
-                    },
-                },
-                StyledSpan {
-                    text: format!("{}╮", "─".repeat(dashes_after)),
-                    style: Style {
-                        fg: Some(border_fg),
-                        ..Default::default()
-                    },
-                },
-            ],
-            meta: LineMeta::CodeContent {
-                block_id,
-                diagram: true,
-            },
-        });
-
-        // Diagram content rows
-        for row_spans in diagram_rows {
-            let mut spans = vec![
-                StyledSpan {
-                    text: "  │".to_string(),
-                    style: Style {
-                        fg: Some(border_fg),
-                        ..Default::default()
-                    },
-                },
-                StyledSpan {
-                    text: " ".to_string(),
-                    style: Style {
-                        bg: Some(code_bg),
-                        ..Default::default()
-                    },
-                },
-            ];
-
-            let row_width: usize = row_spans
-                .iter()
-                .map(|s| UnicodeWidthStr::width(s.text.as_str()))
-                .sum();
-            spans.extend(row_spans.iter().cloned());
-
-            let padding = content_width.saturating_sub(row_width) + 1;
-            spans.push(StyledSpan {
-                text: " ".repeat(padding),
-                style: Style {
-                    bg: Some(code_bg),
-                    ..Default::default()
-                },
-            });
-            spans.push(StyledSpan {
-                text: "│".to_string(),
-                style: Style {
-                    fg: Some(border_fg),
-                    ..Default::default()
-                },
-            });
-
-            self.lines.push(Line {
-                spans,
-                meta: LineMeta::CodeContent {
-                    block_id,
-                    diagram: true,
-                },
-            });
-        }
-
-        // Bottom border
-        self.lines.push(Line {
-            spans: vec![StyledSpan {
-                text: format!("  ╰{}╯", "─".repeat(inner_width)),
-                style: Style {
-                    fg: Some(border_fg),
-                    ..Default::default()
-                },
-            }],
-            meta: LineMeta::CodeContent {
-                block_id,
-                diagram: true,
-            },
+            meta: LineMeta::CodeContent { block_id },
         });
     }
 
@@ -594,22 +452,8 @@ impl<'a> Renderer<'a> {
         self.flush_line();
     }
 
-    fn emit_mermaid_block(&mut self, block_id: usize, code: &str) -> bool {
-        match self.mermaid_render {
-            MermaidRenderMode::Ascii => self.emit_mermaid_ascii(block_id, code),
-            MermaidRenderMode::Auto => self
-                .emit_mermaid_image(code)
-                .unwrap_or_else(|_| self.emit_mermaid_ascii(block_id, code)),
-            MermaidRenderMode::Image => self.emit_mermaid_image(code).unwrap_or(false),
-        }
-    }
-
-    fn emit_mermaid_ascii(&mut self, block_id: usize, code: &str) -> bool {
-        let Some((diagram_rows, diagram_width)) = diagram::render_mermaid(code, self.theme) else {
-            return false;
-        };
-        self.emit_diagram_block(block_id, &diagram_rows, diagram_width);
-        true
+    fn emit_mermaid_block(&mut self, _block_id: usize, code: &str) -> bool {
+        self.emit_mermaid_image(code).unwrap_or(false)
     }
 
     fn emit_mermaid_image(&mut self, code: &str) -> Result<bool, String> {
@@ -1115,6 +959,7 @@ impl<'a> Renderer<'a> {
                 let code_style = Style {
                     fg: Some(self.theme.inline_code_fg),
                     bg: Some(self.theme.inline_code_bg),
+                    code: true,
                     ..Default::default()
                 };
                 if self.in_table {
@@ -1633,7 +1478,7 @@ pub fn render_with(
         input,
         width,
         theme,
-        RenderOptions::ascii(line_numbers),
+        RenderOptions { line_numbers },
         syntect_res,
     )
 }
@@ -1671,9 +1516,31 @@ pub fn render_with_options(
     let doc_info = DocumentInfo {
         code_blocks: renderer.code_blocks,
         generated_images: renderer.generated_images,
+        frontmatter_lines: frontmatter_line_count(input),
     };
 
     (renderer.lines, doc_info)
+}
+
+/// Number of leading source lines consumed by YAML frontmatter, if any.
+/// Returns `Some(n)` when the document opens with a `---` fence that is later
+/// closed by another `---` line; otherwise `None`.
+fn frontmatter_line_count(input: &str) -> Option<usize> {
+    let bytes = input.as_bytes();
+    if !bytes.starts_with(b"---\n") && !bytes.starts_with(b"---\r\n") {
+        return None;
+    }
+    let mut line_no = 0usize;
+    for line in input.lines() {
+        line_no += 1;
+        if line_no == 1 {
+            continue; // opening fence
+        }
+        if line.trim_end() == "---" {
+            return Some(line_no);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -1685,21 +1552,6 @@ mod tests {
     fn render_test(input: &str) -> (Vec<Line>, DocumentInfo) {
         let theme = Theme::dark();
         render(input, 80, &theme, false)
-    }
-
-    fn render_mermaid_mode(input: &str, mode: MermaidRenderMode) -> (Vec<Line>, DocumentInfo) {
-        let theme = Theme::dark();
-        let resources = SyntectRes::load();
-        render_with_options(
-            input,
-            80,
-            &theme,
-            RenderOptions {
-                line_numbers: false,
-                mermaid_render: mode,
-            },
-            &resources,
-        )
     }
 
     fn line_text(line: &Line) -> String {
@@ -1798,26 +1650,6 @@ mod tests {
         assert_eq!(doc_info.code_blocks[1].language, "js");
     }
 
-    #[test]
-    fn rendered_mermaid_diagram_lines_do_not_wrap() {
-        let theme = Theme::dark();
-        let input =
-            "```mermaid\ngraph LR\nA[Very long start label] --> B[Very long finish label]\n```";
-        let (lines, _) = render(input, 80, &theme, false);
-        assert!(
-            lines.iter().any(|line| line.display_width() > 20),
-            "test fixture should produce a diagram wider than the wrap width"
-        );
-
-        let wrapped = crate::style::wrap_lines(&lines, 20);
-
-        assert_eq!(
-            wrapped.len(),
-            lines.len(),
-            "rendered Mermaid diagrams should remain horizontally pannable, not wrap"
-        );
-    }
-
     // ── Image placeholders ──────────────────────────────────────────────────
 
     #[test]
@@ -1866,7 +1698,7 @@ mod tests {
     #[test]
     fn mermaid_image_mode_emits_generated_image() {
         let input = "```mermaid\nflowchart TD\nA --> B\n```";
-        let (lines, doc_info) = render_mermaid_mode(input, MermaidRenderMode::Image);
+        let (lines, doc_info) = render_test(input);
 
         assert_eq!(doc_info.generated_images.len(), 1);
         assert!(
@@ -1878,19 +1710,6 @@ mod tests {
             lines
                 .iter()
                 .any(|line| matches!(line.meta, LineMeta::Image { .. }))
-        );
-    }
-
-    #[test]
-    fn mermaid_ascii_mode_does_not_generate_an_image() {
-        let input = "```mermaid\nflowchart TD\nA --> B\n```";
-        let (lines, doc_info) = render_mermaid_mode(input, MermaidRenderMode::Ascii);
-
-        assert!(doc_info.generated_images.is_empty());
-        assert!(
-            lines
-                .iter()
-                .any(|line| matches!(line.meta, LineMeta::CodeContent { diagram: true, .. }))
         );
     }
 

@@ -46,6 +46,17 @@ Requires Rust 1.95+ (edition 2024).
 cargo install --path .
 ```
 
+### POS highlighting
+
+The `pos` feature adds part-of-speech coloring (~1.5 MB of embedded model
+data). It is enabled by default; disable default features for a lean build
+without the embedded model.
+
+```bash
+cargo install --path .                        # with POS highlighting
+cargo install --no-default-features --path .  # without POS highlighting
+```
+
 ## Usage
 
 ```bash
@@ -129,7 +140,10 @@ Create `~/.config/mdterm/config.toml`:
 theme = "dark"          # "dark" or "light"
 line_numbers = false     # show line numbers in code blocks
 width = 0               # display width (0 = auto)
-mermaid_render = "auto" # "auto", "image", or "ascii"
+
+[pos]                   # part-of-speech highlighting (requires `pos` feature)
+enabled = true           # start with POS on; set false to disable
+categories = ["noun", "verb"]  # only these; omit or "all" for every category
 ```
 
 CLI flags override config file settings.

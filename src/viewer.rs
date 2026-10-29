@@ -34,7 +34,10 @@ pub struct ViewerOptions {
     pub slide_mode: bool,
     pub line_numbers: bool,
     pub width_override: Option<usize>,
-    pub mermaid_render: crate::markdown::MermaidRenderMode,
+    #[allow(dead_code)]
+    pub pos_enabled: bool,
+    #[allow(dead_code)]
+    pub pos_categories: Vec<String>,
 }
 
 pub fn run(opts: ViewerOptions) -> io::Result<()> {
@@ -304,7 +307,6 @@ struct ViewerState {
     slide_mode: bool,
     line_numbers: bool,
     width_override: Option<usize>,
-    mermaid_render: crate::markdown::MermaidRenderMode,
 
     // Mode
     mode: ViewMode,
@@ -369,6 +371,12 @@ struct ViewerState {
 
     // Interactive JSON explorer state
     json_view: Option<crate::json::JsonViewState>,
+    #[cfg_attr(not(feature = "pos"), allow(dead_code))]
+    pos_enabled: bool,
+    #[cfg(feature = "pos")]
+    pos_categories: crate::pos::PosCategorySet,
+    #[cfg(feature = "pos")]
+    pos_tagger: Option<crate::pos::PosTagger>,
 
     // Cached parsed JSON value (avoids re-parsing on every rebuild)
     cached_json: Option<serde_json::Value>,
@@ -416,6 +424,7 @@ impl ViewerState {
             doc_info: DocumentInfo {
                 code_blocks: Vec::new(),
                 generated_images: Vec::new(),
+                frontmatter_lines: None,
             },
             offset: 0,
             h_offset: 0,
@@ -425,7 +434,24 @@ impl ViewerState {
             slide_mode: opts.slide_mode,
             line_numbers: opts.line_numbers,
             width_override: opts.width_override,
-            mermaid_render: opts.mermaid_render,
+            pos_enabled: opts.pos_enabled,
+            #[cfg(feature = "pos")]
+            pos_categories: {
+                use crate::pos::PosCategorySet;
+                if opts.pos_categories.is_empty() {
+                    PosCategorySet::all()
+                } else {
+                    match PosCategorySet::from_names(&opts.pos_categories) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            PosCategorySet::all()
+                        }
+                    }
+                }
+            },
+            #[cfg(feature = "pos")]
+            pos_tagger: None,
             mode: ViewMode::Normal,
             search: SearchState::new(),
             toc_entries: Vec::new(),
@@ -522,7 +548,7 @@ impl ViewerState {
         let saved_offset = self.offset;
 
         let cw = self.content_width();
-        let (lines, doc_info) = if self.filename.ends_with(".json") {
+        let (mut lines, doc_info) = if self.filename.ends_with(".json") {
             // Parse once and cache
             if self.cached_json.is_none() {
                 match serde_json::from_str(&self.content) {
@@ -572,7 +598,6 @@ impl ViewerState {
                     &self.theme,
                     crate::markdown::RenderOptions {
                         line_numbers: self.line_numbers,
-                        mermaid_render: self.mermaid_render,
                     },
                     &self.syntect_res,
                 )
@@ -585,7 +610,6 @@ impl ViewerState {
                 &self.theme,
                 crate::markdown::RenderOptions {
                     line_numbers: self.line_numbers,
-                    mermaid_render: self.mermaid_render,
                 },
                 &self.syntect_res,
             )
@@ -608,6 +632,30 @@ impl ViewerState {
                 entry.push_str(&text);
             }
         }
+
+        #[cfg(feature = "pos")]
+        if self.pos_enabled && self.json_view.is_none() {
+            if self.pos_tagger.is_none() {
+                match crate::pos::PosTagger::load() {
+                    Ok(tagger) => self.pos_tagger = Some(tagger),
+                    Err(e) => {
+                        self.pos_enabled = false;
+                        self.set_toast(format!("POS disabled: {e}"));
+                    }
+                }
+            }
+            if let Some(tagger) = &self.pos_tagger {
+                crate::pos::apply(
+                    &mut lines,
+                    &self.theme,
+                    tagger,
+                    self.pos_categories,
+                    doc_info.frontmatter_lines,
+                );
+            }
+        }
+        // Avoid unused-variable warning when feature is off.
+        let _ = &mut lines;
 
         for generated in &doc_info.generated_images {
             self.image_cache
@@ -4363,7 +4411,8 @@ mod tests {
             slide_mode: false,
             line_numbers: false,
             width_override: None,
-            mermaid_render: crate::markdown::MermaidRenderMode::Ascii,
+            pos_enabled: false,
+            pos_categories: Vec::new(),
         };
         let mut state = ViewerState::new(opts, 80, 24);
         state.wrapped = lines;

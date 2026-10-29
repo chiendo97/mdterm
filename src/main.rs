@@ -4,6 +4,8 @@ mod export;
 mod image;
 mod json;
 mod markdown;
+#[cfg(feature = "pos")]
+mod pos;
 mod style;
 mod theme;
 mod viewer;
@@ -11,7 +13,7 @@ mod viewer;
 use std::io::{self, IsTerminal, Read};
 use std::{fs, process};
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 
 #[derive(Parser)]
 #[command(
@@ -51,42 +53,60 @@ struct Cli {
     #[arg(long)]
     no_color: bool,
 
-    /// Mermaid rendering: auto, image, or ascii
-    #[arg(long, value_enum)]
-    mermaid_render: Option<MermaidRenderArg>,
+    /// Part-of-speech highlighting (requires `pos` feature)
+    #[arg(long, num_args = 0..=1, value_name = "CATEGORIES")]
+    pos: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-enum MermaidRenderArg {
-    Auto,
-    Image,
-    Ascii,
-}
+mod pos_cli {
+    /// Parsed `--pos` value: `None` (flag absent), `All` (`--pos` / `--pos all`),
+    /// or `Some(names)` for an explicit list.
+    #[derive(Debug)]
+    pub enum PosArg {
+        All,
+        Some(Vec<String>),
+    }
 
-impl From<MermaidRenderArg> for markdown::MermaidRenderMode {
-    fn from(value: MermaidRenderArg) -> Self {
-        match value {
-            MermaidRenderArg::Auto => markdown::MermaidRenderMode::Auto,
-            MermaidRenderArg::Image => markdown::MermaidRenderMode::Image,
-            MermaidRenderArg::Ascii => markdown::MermaidRenderMode::Ascii,
+    impl PosArg {
+        pub fn parse(raw: Option<&str>) -> Result<Self, String> {
+            match raw {
+                None => Ok(Self::All),
+                Some(v) => {
+                    let v = v.trim();
+                    if v.eq_ignore_ascii_case("all") || v.is_empty() {
+                        Ok(Self::All)
+                    } else {
+                        let names: Vec<String> = v
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if names.is_empty() {
+                            Ok(Self::All)
+                        } else {
+                            Ok(Self::Some(names))
+                        }
+                    }
+                }
+            }
         }
     }
-}
 
-fn parse_mermaid_render_config(raw: &str) -> markdown::MermaidRenderMode {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "image" => markdown::MermaidRenderMode::Image,
-        "ascii" => markdown::MermaidRenderMode::Ascii,
-        _ => markdown::MermaidRenderMode::Auto,
-    }
-}
+    #[allow(dead_code)]
+    pub const VALID_CATEGORIES: [&str; 9] = [
+        "noun",
+        "verb",
+        "adjective",
+        "adverb",
+        "preposition",
+        "conjunction",
+        "determiner",
+        "pronoun",
+        "value",
+    ];
 
-fn resolve_mermaid_render_mode(
-    cli: Option<MermaidRenderArg>,
-    config_raw: &str,
-) -> markdown::MermaidRenderMode {
-    cli.map(Into::into)
-        .unwrap_or_else(|| parse_mermaid_render_config(config_raw))
+    #[allow(dead_code)]
+    pub const INSTALL_HINT: &str = "POS highlighting requires: cargo install mdterm --features pos";
 }
 
 fn main() {
@@ -108,7 +128,46 @@ fn main() {
     } else {
         0
     };
-    let mermaid_render = resolve_mermaid_render_mode(cli.mermaid_render, &config.mermaid_render);
+
+    // Resolve --pos: parse the CLI value (if any).
+    let pos_arg = match &cli.pos {
+        None => None,
+        Some(v) => pos_cli::PosArg::parse(if v.is_empty() { None } else { Some(v.as_str()) })
+            .map(Some)
+            .unwrap_or_else(|e| {
+                eprintln!("{e}");
+                process::exit(2);
+            }),
+    };
+
+    #[cfg(not(feature = "pos"))]
+    if pos_arg.is_some() {
+        eprintln!("{}", pos_cli::INSTALL_HINT);
+        process::exit(0);
+    }
+
+    // Resolve enabled + raw categories from CLI (overrides config).
+    let (pos_enabled, pos_categories): (bool, Vec<String>) = match pos_arg {
+        Some(pos_cli::PosArg::All) => (true, Vec::new()),
+        Some(pos_cli::PosArg::Some(names)) => (true, names),
+        None => (
+            config.pos.enabled,
+            config.pos.categories.clone().unwrap_or_default(),
+        ),
+    };
+
+    #[cfg(feature = "pos")]
+    let pos_set = if pos_categories.is_empty() {
+        pos::PosCategorySet::all()
+    } else {
+        match pos::PosCategorySet::from_names(&pos_categories) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("{e}");
+                process::exit(2);
+            }
+        }
+    };
 
     // Read content: stdin or file(s)
     let (content, filename) = if cli.files.is_empty() {
@@ -169,7 +228,8 @@ fn main() {
             slide_mode: cli.slides,
             line_numbers,
             width_override: if width > 0 { Some(width) } else { None },
-            mermaid_render,
+            pos_enabled,
+            pos_categories,
         };
         if let Err(e) = viewer::run(opts) {
             eprintln!("Viewer error: {}", e);
@@ -183,7 +243,7 @@ fn main() {
                 .map(|(c, _)| c as usize)
                 .unwrap_or(80)
         };
-        let (lines, _) = if is_json {
+        let (mut lines, doc_info) = if is_json {
             match json::render(&content, w, &initial_theme) {
                 Ok(result) => result,
                 Err(e) => {
@@ -194,40 +254,32 @@ fn main() {
         } else {
             markdown::render(&content, w, &initial_theme, line_numbers)
         };
+
+        #[cfg(feature = "pos")]
+        {
+            if pos_enabled && !is_json {
+                match pos::PosTagger::load() {
+                    Ok(tagger) => pos::apply(
+                        &mut lines,
+                        &initial_theme,
+                        &tagger,
+                        pos_set,
+                        doc_info.frontmatter_lines,
+                    ),
+                    Err(e) => eprintln!("POS disabled: {e}"),
+                }
+            }
+        }
+        #[cfg(not(feature = "pos"))]
+        {
+            let _ = &mut lines;
+            let _ = &doc_info;
+        }
         let wrapped = style::wrap_lines(&lines, w);
         if cli.no_color {
             viewer::print_lines_plain(&wrapped);
         } else {
             viewer::print_lines(&wrapped);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_mermaid_render_prefers_cli() {
-        assert_eq!(
-            resolve_mermaid_render_mode(Some(MermaidRenderArg::Ascii), "image"),
-            markdown::MermaidRenderMode::Ascii
-        );
-    }
-
-    #[test]
-    fn resolve_mermaid_render_uses_config_when_cli_absent() {
-        assert_eq!(
-            resolve_mermaid_render_mode(None, "image"),
-            markdown::MermaidRenderMode::Image
-        );
-    }
-
-    #[test]
-    fn resolve_mermaid_render_defaults_invalid_config_to_auto() {
-        assert_eq!(
-            resolve_mermaid_render_mode(None, "bogus"),
-            markdown::MermaidRenderMode::Auto
-        );
     }
 }

@@ -2,6 +2,23 @@ use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 
+fn deserialize_categories<'de, D>(d: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum Cat {
+        List(Vec<String>),
+        Single(String),
+    }
+    match Option::deserialize(d)? {
+        Some(Cat::List(v)) => Ok(Some(v)),
+        Some(Cat::Single(s)) => Ok(Some(vec![s])),
+        None => Ok(None),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct Config {
     #[serde(default = "default_theme")]
@@ -10,16 +27,35 @@ pub struct Config {
     pub line_numbers: bool,
     #[serde(default)]
     pub width: usize,
-    #[serde(default = "default_mermaid_render")]
-    pub mermaid_render: String,
+    #[serde(default)]
+    pub pos: PosConfig,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct PosConfig {
+    #[serde(default = "default_pos_enabled")]
+    #[allow(dead_code)]
+    pub enabled: bool,
+    #[serde(default, deserialize_with = "deserialize_categories")]
+    #[allow(dead_code)]
+    pub categories: Option<Vec<String>>,
+}
+
+impl Default for PosConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_pos_enabled(),
+            categories: None,
+        }
+    }
 }
 
 fn default_theme() -> String {
     "dark".to_string()
 }
 
-fn default_mermaid_render() -> String {
-    "auto".to_string()
+fn default_pos_enabled() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -28,7 +64,7 @@ impl Default for Config {
             theme: default_theme(),
             line_numbers: false,
             width: 0,
-            mermaid_render: default_mermaid_render(),
+            pos: PosConfig::default(),
         }
     }
 }
@@ -50,20 +86,4 @@ fn config_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(dirs::config_dir)?;
     Some(base.join("mdterm").join("config.toml"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_mermaid_render_is_auto() {
-        assert_eq!(Config::default().mermaid_render, "auto");
-    }
-
-    #[test]
-    fn parse_mermaid_render_config() {
-        let config: Config = toml::from_str("mermaid_render = \"ascii\"\n").unwrap();
-        assert_eq!(config.mermaid_render, "ascii");
-    }
 }

@@ -28,3 +28,12 @@ unicode-width = "0.2"
 notify = "7"
 serde_json = "1"
 merman = { version = "=0.7.0", default-features = false, features = ["raster"] }
+flate2 = { version = "1", optional = true }
+
+[features]
+default = ["pos"]
+pos = ["dep:flate2"]
+
+[[example]]
+name = "convert_pos_model"
+required-features = ["pos"]

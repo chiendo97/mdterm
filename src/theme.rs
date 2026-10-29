@@ -90,6 +90,26 @@ pub struct Theme {
     pub json_path: Color,
     pub json_focus_bg: Color,
 
+    // Part-of-speech highlighting (feature `pos`)
+    #[allow(dead_code)]
+    pub pos_noun: Color,
+    #[allow(dead_code)]
+    pub pos_verb: Color,
+    #[allow(dead_code)]
+    pub pos_adjective: Color,
+    #[allow(dead_code)]
+    pub pos_adverb: Color,
+    #[allow(dead_code)]
+    pub pos_preposition: Color,
+    #[allow(dead_code)]
+    pub pos_conjunction: Color,
+    #[allow(dead_code)]
+    pub pos_determiner: Color,
+    #[allow(dead_code)]
+    pub pos_pronoun: Color,
+    #[allow(dead_code)]
+    pub pos_value: Color,
+
     is_dark: bool,
 }
 
@@ -377,6 +397,51 @@ impl Theme {
                 g: 42,
                 b: 54,
             },
+            pos_noun: Color::Rgb {
+                r: 152,
+                g: 204,
+                b: 168,
+            }, // sage green
+            pos_verb: Color::Rgb {
+                r: 134,
+                g: 175,
+                b: 255,
+            }, // soft blue
+            pos_adjective: Color::Rgb {
+                r: 221,
+                g: 175,
+                b: 230,
+            }, // lavender
+            pos_adverb: Color::Rgb {
+                r: 214,
+                g: 188,
+                b: 153,
+            }, // wheat
+            pos_preposition: Color::Rgb {
+                r: 143,
+                g: 197,
+                b: 215,
+            }, // teal
+            pos_conjunction: Color::Rgb {
+                r: 200,
+                g: 162,
+                b: 200,
+            }, // mauve
+            pos_determiner: Color::Rgb {
+                r: 150,
+                g: 155,
+                b: 168,
+            }, // cool gray
+            pos_pronoun: Color::Rgb {
+                r: 230,
+                g: 180,
+                b: 140,
+            }, // peach
+            pos_value: Color::Rgb {
+                r: 209,
+                g: 154,
+                b: 102,
+            }, // bronze
         }
     }
 
@@ -663,6 +728,51 @@ impl Theme {
                 g: 224,
                 b: 232,
             },
+            pos_noun: Color::Rgb {
+                r: 56,
+                g: 120,
+                b: 80,
+            }, // forest green
+            pos_verb: Color::Rgb {
+                r: 40,
+                g: 90,
+                b: 190,
+            }, // deep blue
+            pos_adjective: Color::Rgb {
+                r: 140,
+                g: 60,
+                b: 160,
+            }, // purple
+            pos_adverb: Color::Rgb {
+                r: 150,
+                g: 110,
+                b: 30,
+            }, // dark wheat
+            pos_preposition: Color::Rgb {
+                r: 30,
+                g: 120,
+                b: 140,
+            }, // deep teal
+            pos_conjunction: Color::Rgb {
+                r: 130,
+                g: 60,
+                b: 130,
+            }, // plum
+            pos_determiner: Color::Rgb {
+                r: 95,
+                g: 100,
+                b: 115,
+            }, // slate
+            pos_pronoun: Color::Rgb {
+                r: 180,
+                g: 95,
+                b: 40,
+            }, // rust
+            pos_value: Color::Rgb {
+                r: 165,
+                g: 110,
+                b: 30,
+            }, // amber
         }
     }
 
